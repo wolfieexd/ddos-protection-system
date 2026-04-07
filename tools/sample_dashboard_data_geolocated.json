@@ -1,0 +1,51 @@
+{
+  "generated_at": "2026-03-17T18:00:00Z",
+  "note": "Sanitized, synthetic dataset for image generation. Contains mappings for seed IPs; private IPs are mapped to countries only for display purposes (privacy-safe).",
+  "blocked_ips": [
+    {
+      "ip": "172.18.0.1",
+      "country": "United States",
+      "country_code": "US",
+      "first_seen": "2026-03-17T14:32:01Z",
+      "last_seen": "2026-03-17T14:32:01Z",
+      "request_count": 1240,
+      "reason": "rate_limit_exceeded"
+    },
+    {
+      "ip": "185.122.41.9",
+      "country": "Brazil",
+      "country_code": "BR",
+      "first_seen": "2026-03-17T19:12:38Z",
+      "last_seen": "2026-03-17T19:12:38Z",
+      "request_count": 860,
+      "reason": "suspicious_payloads"
+    },
+    {
+      "ip": "192.168.1.100",
+      "country": "United States",
+      "country_code": "US",
+      "first_seen": "2026-03-17T08:45:10Z",
+      "last_seen": "2026-03-17T08:45:10Z",
+      "request_count": 540,
+      "reason": "high_rps"
+    },
+    {
+      "ip": "10.0.0.5",
+      "country": "United Kingdom",
+      "country_code": "GB",
+      "first_seen": "2026-03-17T21:05:12Z",
+      "last_seen": "2026-03-17T21:05:12Z",
+      "request_count": 410,
+      "reason": "high_rps"
+    },
+    {
+      "ip": "203.0.113.45",
+      "country": "France",
+      "country_code": "FR",
+      "first_seen": "2026-03-17T16:15:02Z",
+      "last_seen": "2026-03-17T16:15:02Z",
+      "request_count": 305,
+      "reason": "suspicious_payloads"
+    }
+  ]
+}

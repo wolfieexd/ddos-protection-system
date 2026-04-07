@@ -14,6 +14,7 @@ A comprehensive, production-ready DDoS detection, mitigation, and recovery syste
 - **Per-Endpoint Rate Limiting**: Configurable rate profiles for different routes (/login, /api, etc.)
 - **API Key Authentication**: Protected admin endpoints with configurable API key
 - **Attack Notifications**: Webhook alerts (Slack, Discord, etc.) with cooldown deduplication
+- **GeoIP Enrichment (Optional)**: Real city/country labels in dashboard when MaxMind DB is configured
 - **IP Management API**: REST API to manually block/unblock IPs in real-time
 - **High Availability**: Circuit breaker pattern with auto-recovery, 99.9%+ uptime
 - **Production Ready**: Docker Compose deployment with Nginx reverse proxy and Gunicorn
@@ -142,6 +143,47 @@ All settings configurable via environment variables (`.env` file):
 | `RECOVERY_TIME` | `300` | Auto-recovery period (seconds) |
 | `WEBHOOK_URL` | *(none)* | Webhook URL for attack notifications |
 | `ALERT_COOLDOWN` | `60` | Seconds between alerts per IP |
+| `GEOIP_DB_PATH` | *(none)* | Path to MaxMind `GeoLite2-City.mmdb` for real geolocation |
+| `GEOIP_SOURCE` | `auto` | GeoIP source: `auto`, `db`, or `api` |
+| `GEOIP_API_URL` | *(none)* | API URL template for IP lookup (e.g. `https://ipwho.is/{ip}`) |
+| `GEOIP_API_TIMEOUT` | `2.0` | Timeout in seconds for GeoIP API requests |
+
+### Enable Real GeoIP Location (Optional)
+
+Option A: API-based (recommended when you do not want local DB files)
+
+1. Add to `.env`:
+
+```env
+GEOIP_SOURCE=api
+GEOIP_API_URL=https://ipwho.is/{ip}
+GEOIP_API_TIMEOUT=2.0
+```
+
+2. Restart containers:
+
+```bash
+docker-compose up -d --build
+```
+
+Option B: Local MaxMind DB
+
+1. Download `GeoLite2-City.mmdb` from MaxMind.
+2. Place it in the project root (example path: `./GeoLite2-City.mmdb`).
+3. Add this to `.env`:
+
+```env
+GEOIP_SOURCE=db
+GEOIP_DB_PATH=/app/GeoLite2-City.mmdb
+```
+
+4. Restart containers:
+
+```bash
+docker-compose up -d --build
+```
+
+If GeoIP API/DB is unavailable, the dashboard safely falls back to network-scope labels (Private Network, Loopback, Public, etc.).
 
 ## Components
 
