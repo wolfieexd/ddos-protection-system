@@ -10,14 +10,29 @@ import urllib.parse
 from typing import Dict, List, Optional
 from collections import deque
 
+try:
+    import redis as redis_lib
+    _redis_available = True
+except ImportError:
+    _redis_available = False
+
 logger = logging.getLogger(__name__)
+
+_KEY_ATTACK_EVENTS = 'ddos:attacks:events'
+_KEY_ATTACK_TOTAL = 'ddos:attacks:total'
+_KEY_ATTACK_TYPES = 'ddos:attacks:types'
+_KEY_ATTACKERS = 'ddos:attacks:attackers'
 
 
 class AttackNotifier:
     def __init__(self, webhook_url: Optional[str] = None, cooldown: int = 60):
         self.webhook_url = webhook_url
         self.cooldown = cooldown
-        self.attack_log = deque(maxlen=500)
+        attack_log_maxlen = int(os.environ.get('ATTACK_LOG_MAXLEN', '5000'))
+        if attack_log_maxlen < 100:
+            attack_log_maxlen = 100
+        self.attack_log = deque(maxlen=attack_log_maxlen)
+        self.attack_log_maxlen = attack_log_maxlen
         self._last_notified = {}
         self._attack_windows = {}
         self._lock = threading.Lock()
@@ -26,6 +41,20 @@ class AttackNotifier:
         self._geoip_api_timeout = float(os.environ.get('GEOIP_API_TIMEOUT', '2.0'))
         self._geoip_cache = {}
         self._geoip_reader = self._init_geoip_reader()
+        self._redis = None
+        if _redis_available:
+            redis_url = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+            try:
+                self._redis = redis_lib.from_url(
+                    redis_url,
+                    decode_responses=True,
+                    socket_connect_timeout=2,
+                    socket_timeout=2
+                )
+                self._redis.ping()
+            except Exception:
+                logger.warning("Notifier Redis unavailable; using in-memory attack log only.")
+                self._redis = None
 
     def _init_geoip_reader(self):
         """Initialize optional MaxMind GeoIP reader if configured."""
@@ -173,6 +202,18 @@ class AttackNotifier:
                 'location': self.classify_ip_location(source_ip),
             }
             self.attack_log.append(event)
+            if self._redis:
+                try:
+                    payload = json.dumps(event, separators=(',', ':'))
+                    pipe = self._redis.pipeline()
+                    pipe.incr(_KEY_ATTACK_TOTAL, 1)
+                    pipe.hincrby(_KEY_ATTACK_TYPES, attack_type, 1)
+                    pipe.hincrby(_KEY_ATTACKERS, source_ip, 1)
+                    pipe.lpush(_KEY_ATTACK_EVENTS, payload)
+                    pipe.ltrim(_KEY_ATTACK_EVENTS, 0, self.attack_log_maxlen - 1)
+                    pipe.execute()
+                except Exception:
+                    logger.debug("Failed to persist attack event to Redis", exc_info=True)
 
         # Cooldown per IP to avoid notification flood
         if key in self._last_notified and now - self._last_notified[key] < self.cooldown:
@@ -203,11 +244,53 @@ class AttackNotifier:
             logger.error("Webhook notification failed: %s", e)
 
     def get_recent_attacks(self, limit: int = 50) -> List[Dict]:
+        if self._redis:
+            try:
+                rows = self._redis.lrange(_KEY_ATTACK_EVENTS, 0, max(0, limit - 1))
+                attacks = []
+                for row in rows:
+                    try:
+                        attacks.append(json.loads(row))
+                    except Exception:
+                        continue
+                return list(reversed(attacks))
+            except Exception:
+                logger.debug("Failed to read recent attacks from Redis", exc_info=True)
         with self._lock:
             attacks = list(self.attack_log)
         return attacks[-limit:]
 
     def get_attack_summary(self) -> Dict:
+        if self._redis:
+            try:
+                pipe = self._redis.pipeline()
+                pipe.get(_KEY_ATTACK_TOTAL)
+                pipe.hgetall(_KEY_ATTACK_TYPES)
+                pipe.hgetall(_KEY_ATTACKERS)
+                pipe.lindex(_KEY_ATTACK_EVENTS, 0)
+                total_raw, types_raw, attackers_raw, latest_raw = pipe.execute()
+                total = int(total_raw or 0)
+                type_counts = {k: int(v) for k, v in (types_raw or {}).items()}
+                ip_counts = {k: int(v) for k, v in (attackers_raw or {}).items()}
+                top_attackers = dict(
+                    sorted(ip_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+                )
+                latest = None
+                if latest_raw:
+                    try:
+                        latest = json.loads(latest_raw)
+                    except Exception:
+                        latest = None
+                if total == 0 and not type_counts and not top_attackers and not latest:
+                    return {'total_attacks': 0, 'attack_types': {}, 'top_attackers': {}}
+                return {
+                    'total_attacks': total,
+                    'attack_types': type_counts,
+                    'top_attackers': top_attackers,
+                    'latest': latest
+                }
+            except Exception:
+                logger.debug("Failed to read attack summary from Redis", exc_info=True)
         with self._lock:
             attacks = list(self.attack_log)
         if not attacks:

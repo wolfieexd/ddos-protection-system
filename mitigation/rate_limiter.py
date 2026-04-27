@@ -48,14 +48,26 @@ class RateLimiter:
 class TrafficAnalyzer:
     def __init__(self):
         self.ip_profiles = defaultdict(lambda: {
-            'first_seen': time.time(), 'request_count': 0, 'suspicious_score': 0
+            'first_seen': time.time(), 
+            'request_count': 0, 
+            'suspicious_score': 0,
+            'user_agents': set(),
+            'endpoints': set(),
+            'status_codes': defaultdict(int)
         })
+        self.ua_distribution = defaultdict(int)
 
     def analyze_request(self, ip: str, endpoint: str, method: str, user_agent: str,
                         status_code: int, response_time: float) -> Dict:
         profile = self.ip_profiles[ip]
         profile['request_count'] += 1
-        suspicious_score = self._calculate_suspicious_score(profile)
+        profile['user_agents'].add(user_agent)
+        profile['endpoints'].add(endpoint)
+        profile['status_codes'][status_code] += 1
+        
+        self.ua_distribution[user_agent] += 1
+        
+        suspicious_score = self._calculate_suspicious_score(ip, profile, user_agent)
         profile['suspicious_score'] = suspicious_score
 
         return {
@@ -64,15 +76,41 @@ class TrafficAnalyzer:
             'recommendation': self._get_recommendation(suspicious_score)
         }
 
-    def _calculate_suspicious_score(self, profile: Dict) -> float:
+    def _calculate_suspicious_score(self, ip: str, profile: Dict, current_ua: str) -> float:
         score = 0.0
-        age = time.time() - profile['first_seen']
+        now = time.time()
+        age = now - profile['first_seen']
+        
+        # 1. Rate-based scoring
         if age > 0:
             req_per_second = profile['request_count'] / age
-            if req_per_second > 50: score += 80
-            elif req_per_second > 20: score += 60
-            elif req_per_second > 10: score += 40
-            elif req_per_second > 5: score += 20
+            if req_per_second > 50: score += 50
+            elif req_per_second > 20: score += 30
+            elif req_per_second > 10: score += 15
+            elif req_per_second > 5: score += 5
+            
+        # 2. User-Agent diversity (An IP using many UAs is suspicious)
+        ua_count = len(profile['user_agents'])
+        if ua_count > 5: score += 40
+        elif ua_count > 2: score += 15
+        
+        # 3. Endpoint diversity (Scraping/Scanning behavior)
+        endpoint_count = len(profile['endpoints'])
+        if endpoint_count > 20: score += 30
+        
+        # 4. Error rate (High 4xx/5xx responses)
+        total_reqs = sum(profile['status_codes'].values())
+        if total_reqs > 10:
+            error_reqs = sum(v for k, v in profile['status_codes'].items() if k >= 400)
+            error_rate = error_reqs / total_reqs
+            if error_rate > 0.8: score += 40
+            elif error_rate > 0.5: score += 20
+            
+        # 5. Global UA popularity (Using a very rare UA might be a custom bot)
+        # (This is a bit simplistic as it depends on local traffic history)
+        if self.ua_distribution[current_ua] < 2 and total_reqs > 50:
+             score += 10
+
         return min(100.0, score)
 
     def _get_risk_level(self, score: float) -> str:

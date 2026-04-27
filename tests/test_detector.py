@@ -199,16 +199,20 @@ class TestTrafficAnalyzer(unittest.TestCase):
 
     def test_scoring_thresholds(self):
         """Scoring should reach all risk levels based on request rate"""
-        self.assertEqual(self.analyzer._calculate_suspicious_score(
-            {'first_seen': time.time() - 1, 'request_count': 3}), 0)   # 3 rps -> SAFE
-        self.assertEqual(self.analyzer._calculate_suspicious_score(
-            {'first_seen': time.time() - 1, 'request_count': 8}), 20)  # 8 rps -> LOW
-        self.assertEqual(self.analyzer._calculate_suspicious_score(
-            {'first_seen': time.time() - 1, 'request_count': 15}), 40) # 15 rps -> MEDIUM
-        self.assertEqual(self.analyzer._calculate_suspicious_score(
-            {'first_seen': time.time() - 1, 'request_count': 30}), 60) # 30 rps -> HIGH
-        self.assertEqual(self.analyzer._calculate_suspicious_score(
-            {'first_seen': time.time() - 1, 'request_count': 100}), 80) # 100 rps -> CRITICAL
+        profile = {'first_seen': time.time() - 1, 'request_count': 3, 'user_agents': set(), 'endpoints': set(), 'status_codes': {}}
+        self.assertEqual(self.analyzer._calculate_suspicious_score("1.1.1.1", profile, "UA"), 0)   # 3 rps -> SAFE
+        
+        profile['request_count'] = 8
+        self.assertEqual(self.analyzer._calculate_suspicious_score("1.1.1.1", profile, "UA"), 5)  # 8 rps -> LOW
+        
+        profile['request_count'] = 15
+        self.assertEqual(self.analyzer._calculate_suspicious_score("1.1.1.1", profile, "UA"), 15) # 15 rps -> MEDIUM
+        
+        profile['request_count'] = 30
+        self.assertEqual(self.analyzer._calculate_suspicious_score("1.1.1.1", profile, "UA"), 30) # 30 rps -> HIGH
+        
+        profile['request_count'] = 100
+        self.assertEqual(self.analyzer._calculate_suspicious_score("1.1.1.1", profile, "UA"), 50) # 100 rps -> CRITICAL
 
 
 class TestAttackNotifier(unittest.TestCase):

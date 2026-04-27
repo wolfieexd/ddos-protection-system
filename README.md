@@ -12,7 +12,8 @@ A comprehensive, production-ready DDoS detection, mitigation, and recovery syste
 - **Automatic Mitigation**: Real-time IP blocking, token bucket rate limiting, and behavioral risk scoring
 - **Real-Time Dashboard**: Live monitoring UI with traffic charts, attack logs, and IP management
 - **Per-Endpoint Rate Limiting**: Configurable rate profiles for different routes (/login, /api, etc.)
-- **API Key Authentication**: Protected admin endpoints with configurable API key
+- **Admin Login (Market-Ready)**: Fixed username `admin`, password-based sign-in, session security, and login lockout
+- **API Key Fallback**: Optional header/query API key support for automation clients
 - **Attack Notifications**: Webhook alerts (Slack, Discord, etc.) with cooldown deduplication
 - **GeoIP Enrichment (Optional)**: Real city/country labels in dashboard when MaxMind DB is configured
 - **IP Management API**: REST API to manually block/unblock IPs in real-time
@@ -27,9 +28,9 @@ A comprehensive, production-ready DDoS detection, mitigation, and recovery syste
 git clone https://github.com/wolfieexd/ddos-protection-system.git
 cd ddos-protection-system
 
-# Configure (set your admin API key!)
+# Configure (set secure admin credentials)
 cp .env.example .env
-# Edit .env and change ADMIN_API_KEY
+# Edit .env and change ADMIN_PASSWORD + FLASK_SECRET_KEY
 
 # Option 1: Quick start with helper script
 ./start.sh
@@ -51,8 +52,12 @@ Stop the system: `./stop.sh` or `docker-compose down`
 Access the live monitoring dashboard:
 
 ```
-http://localhost:80/admin/dashboard?api_key=YOUR_API_KEY
+http://localhost:80/admin/login
 ```
+
+Login credentials:
+- Username: `admin` (fixed)
+- Password: value of `ADMIN_PASSWORD` (or `ADMIN_PASSWORD_HASH` if configured)
 
 Features:
 - Live traffic graphs (requests, attacks, blocked - updates every 2s)
@@ -71,7 +76,7 @@ python -m pytest tests/ -v
 # Run HTTP Flood attack simulation
 python simulation/attack_simulator.py --type http-flood --target http://localhost:80
 
-# Check detection statistics (requires API key)
+# Check detection statistics (API key fallback)
 curl -H "X-API-Key: YOUR_API_KEY" http://localhost:80/admin/stats
 ```
 
@@ -118,9 +123,11 @@ Internet --> Nginx Load Balancer (Layer 1: Rate Limit + Connection Limit)
 | `/` | GET | Main protected web page |
 | `/health` | GET | Health check with service states |
 
-### Admin (Requires `X-API-Key` header or `?api_key=` param)
+### Admin
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/admin/login` | GET/POST | Admin login page (username locked to `admin`) |
+| `/admin/logout` | GET/POST | End authenticated admin session |
 | `/admin/dashboard` | GET | Real-time monitoring dashboard |
 | `/admin/stats` | GET | Full system statistics (JSON) |
 | `/admin/attacks` | GET | Recent attack log (JSON) |
@@ -128,21 +135,33 @@ Internet --> Nginx Load Balancer (Layer 1: Rate Limit + Connection Limit)
 | `/admin/block/<ip>` | POST | Manually block an IP |
 | `/admin/unblock/<ip>` | POST | Unblock an IP |
 
+For machine-to-machine access, admin APIs also accept `X-API-Key` or `?api_key=` fallback.
+
 ## Configuration
 
 All settings configurable via environment variables (`.env` file):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ADMIN_API_KEY` | `change-me-in-production` | API key for admin endpoints |
+| `ADMIN_PASSWORD` | `change-me-in-production` | Initial admin password. **Rotates dynamically after every login.** |
+| `ADMIN_PASSWORD_HASH` | *(none)* | Optional password hash (preferred over plain password if set; rotation disabled if used) |
+| `FLASK_SECRET_KEY` | `change-this-to-a-long-random-secret` | Secret key for secure session cookies |
+| `SESSION_COOKIE_SECURE` | `false` | Set `true` in HTTPS production |
+| `SESSION_MAX_AGE_SECONDS` | `43200` | Admin session lifetime (seconds) |
+| `LOGIN_MAX_ATTEMPTS` | `5` | Failed login attempts allowed before lockout |
+| `LOGIN_LOCK_SECONDS` | `300` | Login lockout duration in seconds |
+| `ADMIN_API_KEY` | `change-me-in-production` | Optional API key fallback for automation clients |
 | `DETECTION_THRESHOLD` | `50` | Max requests per IP before blocking |
 | `TIME_WINDOW` | `60` | Detection analysis window (seconds) |
 | `RATE_LIMIT` | `100` | Token bucket rate (requests/min) |
 | `BURST_SIZE` | `20` | Token bucket burst capacity |
 | `FAILURE_THRESHOLD` | `3` | Failures before CRITICAL state |
 | `RECOVERY_TIME` | `300` | Auto-recovery period (seconds) |
+| `ATTACK_MITIGATION_DELAY_SECONDS` | `10` | Delay after first attack detection before enforcing block/rate-limit |
+| `ATTACK_ACTIVITY_WINDOW_SECONDS` | `30` | Idle timeout to reset attack window and re-apply mitigation delay on next attack |
 | `WEBHOOK_URL` | *(none)* | Webhook URL for attack notifications |
 | `ALERT_COOLDOWN` | `60` | Seconds between alerts per IP |
+| `ATTACK_LOG_MAXLEN` | `5000` | Max in-memory attack events retained for dashboard summaries/charts |
 | `GEOIP_DB_PATH` | *(none)* | Path to MaxMind `GeoLite2-City.mmdb` for real geolocation |
 | `GEOIP_SOURCE` | `auto` | GeoIP source: `auto`, `db`, or `api` |
 | `GEOIP_API_URL` | *(none)* | API URL template for IP lookup (e.g. `https://ipwho.is/{ip}`) |

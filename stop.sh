@@ -3,6 +3,6 @@
 
 echo "Stopping DDoS Protection System..."
 
-docker-compose down
+docker compose down
 
 echo "System stopped successfully."
